@@ -1,0 +1,28 @@
+[package]
+name = "rust-tui-chat"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "shared"
+path = "src/shared/lib.rs"
+
+[[bin]]
+name = "server"
+path = "src/server/main.rs"
+
+[[bin]]
+name = "client"
+path = "src/client/main.rs"
+
+[dependencies]
+tokio = { version = "1.34.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.108"
+rand = "0.8.5"
+futures-util = "0.3.29"
+futures-channel = "0.3.29"
+websocket-lite = "0.5.2" # websocket client
+tokio-tungstenite = " 0.20.1" # websocket server
