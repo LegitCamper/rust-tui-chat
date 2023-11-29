@@ -11,7 +11,7 @@ use std::{
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::protocol::Message;
 
-use shared::*;
+use shared::{ChatMessage, ConnectionType, PeerType};
 
 type Tx = UnboundedSender<Message>;
 type PeerMap = Arc<Mutex<HashMap<u32, (Tx, SocketAddr)>>>;
