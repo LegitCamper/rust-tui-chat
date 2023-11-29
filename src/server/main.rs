@@ -11,7 +11,7 @@ use std::{
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::protocol::Message;
 
-use shared::{ChatMessage, ConnectionType, ServerRequest};
+use shared::*;
 
 type Tx = UnboundedSender<Message>;
 type PeerMap = Arc<Mutex<HashMap<u32, (Tx, SocketAddr)>>>;
@@ -37,39 +37,52 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
 
     // if message has destination forward it,
     // else echo it back or reply with their client id
-    let broadcast_incoming = incoming.try_for_each(|msg| {
-        let chat_messege: ChatMessage = serde_json::from_str(msg.to_text().unwrap()).unwrap();
-        match chat_messege.to_peer_id {
-            ConnectionType::Peer(to_peer_id) => peer_map
-                .lock()
-                .unwrap()
-                .get(&to_peer_id)
-                .unwrap()
-                .0
-                .unbounded_send(msg.clone())
-                .unwrap(),
-
-            ConnectionType::ToServer(request) => match request {
-                ServerRequest::Echo => tx.unbounded_send(msg).unwrap(),
-                ServerRequest::PeerId => {
-                    let chat_message = ChatMessage {
-                        from_peer_id: ConnectionType::Server,
-                        to_peer_id: ConnectionType::FromServer(client_peer_id),
-                        message: None,
-                    };
-                    let message = Message::Text(serde_json::to_string(&chat_message).unwrap());
-                    tx.unbounded_send(message).unwrap();
+    let message_incoming = incoming.try_for_each(|msg| {
+        if !msg.is_empty() {
+            let chat_message: ChatMessage = serde_json::from_str(&msg.to_string()).unwrap();
+            match chat_message.to {
+                PeerType::Client(peer_id) => {
+                    if let Some(peer_id) = peer_id {
+                        peer_map
+                            .lock()
+                            .unwrap()
+                            .get(&peer_id)
+                            .unwrap()
+                            .0
+                            .unbounded_send(msg.clone())
+                            .unwrap()
+                    }
                 }
-            },
-            _ => {}
-        };
+                PeerType::Server => match chat_message.connect {
+                    ConnectionType::Echo => {
+                        let chat_message = ChatMessage {
+                            to: PeerType::Client(Some(client_peer_id)),
+                            from: PeerType::Server,
+                            connect: chat_message.connect,
+                        };
+                        let message = Message::Text(serde_json::to_string(&chat_message).unwrap());
+                        tx.unbounded_send(message).unwrap()
+                    }
+                    ConnectionType::IdRequest => {
+                        let chat_message = ChatMessage {
+                            to: PeerType::Client(Some(client_peer_id)),
+                            from: PeerType::Server,
+                            connect: ConnectionType::Id(client_peer_id),
+                        };
+                        let message = Message::Text(serde_json::to_string(&chat_message).unwrap());
+                        tx.unbounded_send(message).unwrap();
+                    }
+                    _ => {}
+                },
+            };
+        }
         future::ok(())
     });
 
     let receive_from_others = rx.map(Ok).forward(outgoing);
 
-    pin_mut!(broadcast_incoming, receive_from_others);
-    future::select(broadcast_incoming, receive_from_others).await;
+    pin_mut!(message_incoming, receive_from_others);
+    future::select(message_incoming, receive_from_others).await;
 
     println!("{} disconnected", &addr);
     peer_map.lock().unwrap().remove(&client_peer_id);
