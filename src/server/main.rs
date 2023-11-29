@@ -11,7 +11,7 @@ use std::{
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::protocol::Message;
 
-use shared::ChatMessage;
+use shared::{ChatMessage, ConnectionType, ServerRequest};
 
 type Tx = UnboundedSender<Message>;
 type PeerMap = Arc<Mutex<HashMap<u32, (Tx, SocketAddr)>>>;
@@ -24,25 +24,45 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
         .expect("Error during the websocket handshake occurred");
     println!("WebSocket connection established: {}", addr);
 
+    let client_peer_id: u32 = random();
+
     // Insert the write part of this peer to the peer map.
     let (tx, rx) = unbounded();
-    peer_map.lock().unwrap().insert(random(), (tx, addr));
+    peer_map
+        .lock()
+        .unwrap()
+        .insert(client_peer_id, (tx.clone(), addr));
 
     let (outgoing, incoming) = ws_stream.split();
 
+    // if message has destination forward it,
+    // else echo it back or reply with their client id
     let broadcast_incoming = incoming.try_for_each(|msg| {
         let chat_messege: ChatMessage = serde_json::from_str(msg.to_text().unwrap()).unwrap();
-        let to_peer_id: u32 = chat_messege.to_peer_id;
+        match chat_messege.to_peer_id {
+            ConnectionType::Peer(to_peer_id) => peer_map
+                .lock()
+                .unwrap()
+                .get(&to_peer_id)
+                .unwrap()
+                .0
+                .unbounded_send(msg.clone())
+                .unwrap(),
 
-        peer_map
-            .lock()
-            .unwrap()
-            .get(&to_peer_id)
-            .unwrap()
-            .0
-            .unbounded_send(msg.clone())
-            .unwrap();
-
+            ConnectionType::ToServer(request) => match request {
+                ServerRequest::Echo => tx.unbounded_send(msg).unwrap(),
+                ServerRequest::PeerId => {
+                    let chat_message = ChatMessage {
+                        from_peer_id: ConnectionType::Server,
+                        to_peer_id: ConnectionType::FromServer(client_peer_id),
+                        message: None,
+                    };
+                    let message = Message::Text(serde_json::to_string(&chat_message).unwrap());
+                    tx.unbounded_send(message).unwrap();
+                }
+            },
+            _ => {}
+        };
         future::ok(())
     });
 
@@ -52,12 +72,7 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
     future::select(broadcast_incoming, receive_from_others).await;
 
     println!("{} disconnected", &addr);
-    for (id, (_, ip)) in peer_map.lock().unwrap().iter() {
-        if *ip == addr {
-            peer_map.lock().unwrap().remove(id);
-            break;
-        }
-    }
+    peer_map.lock().unwrap().remove(&client_peer_id);
 }
 
 #[tokio::main]
