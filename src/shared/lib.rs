@@ -1,20 +1,20 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug)]
-pub enum ServerRequest {
-    Echo,
-    PeerId,
+pub enum ConnectionType {
+    Echo(String),
+    Message(String),
+    Id(u32),
+    IdRequest,
 }
 #[derive(Deserialize, Serialize, Debug)]
-pub enum ConnectionType {
-    Peer(u32),
-    ToServer(ServerRequest),
-    FromServer(u32),
+pub enum PeerType {
     Server,
+    Client(Option<u32>),
 }
 #[derive(Deserialize, Serialize, Debug)]
 pub struct ChatMessage {
-    pub from_peer_id: ConnectionType,
-    pub to_peer_id: ConnectionType,
-    pub message: Option<String>,
+    pub to: PeerType,
+    pub from: PeerType,
+    pub connect: ConnectionType,
 }

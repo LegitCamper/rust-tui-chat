@@ -54,11 +54,11 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
                     }
                 }
                 PeerType::Server => match chat_message.connect {
-                    ConnectionType::Echo => {
+                    ConnectionType::Echo(msg) => {
                         let chat_message = ChatMessage {
                             to: PeerType::Client(Some(client_peer_id)),
                             from: PeerType::Server,
-                            connect: chat_message.connect,
+                            connect: ConnectionType::Echo(msg),
                         };
                         let message = Message::Text(serde_json::to_string(&chat_message).unwrap());
                         tx.unbounded_send(message).unwrap()
