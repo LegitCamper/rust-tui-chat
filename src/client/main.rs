@@ -3,6 +3,5 @@ mod websocket;
 
 #[tokio::main]
 async fn main() {
-    // websocket::connect_websocket().await
-    tui::build().unwrap();
+    websocket::connect_websocket().await
 }

@@ -43,14 +43,19 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
             match chat_message.to {
                 PeerType::Client(peer_id) => {
                     if let Some(peer_id) = peer_id {
-                        peer_map
-                            .lock()
-                            .unwrap()
-                            .get(&peer_id)
-                            .unwrap()
-                            .0
-                            .unbounded_send(msg.clone())
-                            .unwrap()
+                        match peer_map.lock().unwrap().get(&peer_id) {
+                            Some(peer_sock) => peer_sock.0.unbounded_send(msg.clone()).unwrap(),
+                            None => {
+                                let chat_message = ChatMessage {
+                                    to: PeerType::Client(Some(client_peer_id)),
+                                    from: PeerType::Server,
+                                    connect: ConnectionType::PeerDisconnected,
+                                };
+                                let message =
+                                    Message::Text(serde_json::to_string(&chat_message).unwrap());
+                                tx.unbounded_send(message).unwrap()
+                            }
+                        };
                     }
                 }
                 PeerType::Server => match chat_message.connect {
@@ -68,6 +73,23 @@ async fn handle_connection(peer_map: PeerMap, raw_stream: TcpStream, addr: Socke
                             to: PeerType::Client(Some(client_peer_id)),
                             from: PeerType::Server,
                             connect: ConnectionType::Id(client_peer_id),
+                        };
+                        let message = Message::Text(serde_json::to_string(&chat_message).unwrap());
+                        tx.unbounded_send(message).unwrap();
+                    }
+                    ConnectionType::IdVerify(id) => {
+                        let chat_message = if peer_map.lock().unwrap().keys().any(|&k| k == id) {
+                            ChatMessage {
+                                to: PeerType::Client(Some(client_peer_id)),
+                                from: PeerType::Server,
+                                connect: ConnectionType::IdVerifyAck(true),
+                            }
+                        } else {
+                            ChatMessage {
+                                to: PeerType::Client(Some(client_peer_id)),
+                                from: PeerType::Server,
+                                connect: ConnectionType::IdVerifyAck(false),
+                            }
                         };
                         let message = Message::Text(serde_json::to_string(&chat_message).unwrap());
                         tx.unbounded_send(message).unwrap();
